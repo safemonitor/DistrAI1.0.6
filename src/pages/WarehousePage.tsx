@@ -168,24 +168,92 @@ export function WarehousePage() {
 
       if (pickingsError) throw pickingsError;
 
-      // Fetch transfers
+      // Fetch transfers - Fixed query to avoid ambiguous relationships
       const { data: transfersData, error: transfersError } = await supabase
         .from('wms_transfers')
         .select(`
-          *,
-          from_location:wms_locations (
-            *,
-            warehouse:wms_warehouses (*)
+          id,
+          reference_number,
+          from_location_id,
+          to_location_id,
+          status,
+          initiated_by,
+          completed_by,
+          completed_at,
+          created_at,
+          updated_at,
+          from_location:wms_locations!wms_transfers_from_location_id_fkey (
+            id,
+            warehouse_id,
+            zone,
+            aisle,
+            shelf,
+            position,
+            created_at,
+            updated_at,
+            warehouse:wms_warehouses (
+              id,
+              name,
+              address,
+              created_at,
+              updated_at
+            )
           ),
-          to_location:wms_locations (
-            *,
-            warehouse:wms_warehouses (*)
+          to_location:wms_locations!wms_transfers_to_location_id_fkey (
+            id,
+            warehouse_id,
+            zone,
+            aisle,
+            shelf,
+            position,
+            created_at,
+            updated_at,
+            warehouse:wms_warehouses (
+              id,
+              name,
+              address,
+              created_at,
+              updated_at
+            )
           ),
-          initiated_by_user:wms_users (*),
-          completed_by_user:wms_users (*),
+          initiated_by_user:wms_users!wms_transfers_initiated_by_fkey (
+            id,
+            email,
+            full_name,
+            role,
+            warehouse_id,
+            created_at,
+            updated_at
+          ),
+          completed_by_user:wms_users!wms_transfers_completed_by_fkey (
+            id,
+            email,
+            full_name,
+            role,
+            warehouse_id,
+            created_at,
+            updated_at
+          ),
           transfer_items:wms_transfer_items (
-            *,
-            product:wms_products (*)
+            id,
+            transfer_id,
+            product_id,
+            quantity,
+            lot_number,
+            created_at,
+            updated_at,
+            product:wms_products (
+              id,
+              sku,
+              name,
+              description,
+              category,
+              unit,
+              min_stock,
+              max_stock,
+              created_at,
+              updated_at
+            )
           )
         `)
         .order('created_at', { ascending: false });
