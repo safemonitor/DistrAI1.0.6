@@ -15,7 +15,9 @@ import {
   Ban, 
   Camera, 
   Eye, 
-  Route as RouteIcon
+  Route as RouteIcon,
+  Users,
+  CalendarDays
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { RouteModal } from './RouteModal';
@@ -24,7 +26,7 @@ import { PhotoCapture } from './PhotoCapture';
 import { VisitLocationCapture } from './VisitLocationCapture';
 import { Modal } from './Modal';
 import { logActivity, ActivityTypes } from '../lib/activityLogger';
-import type { Route, VisitWithDetails } from '../types/database';
+import type { Route, VisitWithDetails, RouteCustomer, RouteAgentAssignment, Customer, Profile } from '../types/database';
 
 interface RoutePlanningViewProps {
   moduleType: 'presales' | 'sales' | 'delivery';
@@ -32,10 +34,12 @@ interface RoutePlanningViewProps {
 
 export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
   // Active tab state
-  const [activeTab, setActiveTab] = useState<'routes' | 'visits'>('routes');
+  const [activeTab, setActiveTab] = useState<'routes' | 'visits' | 'schedules'>('routes');
   
   // Routes state
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [routeCustomers, setRouteCustomers] = useState<RouteCustomer[]>([]);
+  const [routeAgents, setRouteAgents] = useState<RouteAgentAssignment[]>([]);
   const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
   const [routeSearchTerm, setRouteSearchTerm] = useState('');
   const [routeTypeFilter, setRouteTypeFilter] = useState<string>('all');
@@ -51,6 +55,10 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<VisitWithDetails | undefined>();
+  
+  // Customers and agents state
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [agents, setAgents] = useState<Profile[]>([]);
   
   // Shared state
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +83,9 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
       
       await Promise.all([
         fetchRoutes(),
-        fetchVisits()
+        fetchVisits(),
+        fetchCustomers(),
+        fetchAgents()
       ]);
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -87,6 +97,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
 
   async function fetchRoutes() {
     try {
+      // Fetch routes
       let query = supabase
         .from('routes')
         .select('*')
@@ -102,10 +113,43 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
       }
 
       const { data, error } = await query;
-
       if (error) throw error;
+      
+      // Fetch route customers
+      const { data: routeCustomersData, error: routeCustomersError } = await supabase
+        .from('route_customers')
+        .select(`
+          *,
+          customer:customers (
+            id,
+            name,
+            email,
+            phone,
+            address
+          )
+        `);
+      
+      if (routeCustomersError) throw routeCustomersError;
+      
+      // Fetch route agent assignments
+      const { data: routeAgentsData, error: routeAgentsError } = await supabase
+        .from('route_agent_assignments')
+        .select(`
+          *,
+          agent:profiles (
+            id,
+            first_name,
+            last_name,
+            role
+          )
+        `);
+      
+      if (routeAgentsError) throw routeAgentsError;
+
       setRoutes(data || []);
       setFilteredRoutes(data || []);
+      setRouteCustomers(routeCustomersData || []);
+      setRouteAgents(routeAgentsData || []);
     } catch (err) {
       console.error('Error fetching routes:', err);
       throw err;
@@ -128,6 +172,13 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
             first_name,
             last_name,
             role
+          ),
+          schedule:visit_schedules (
+            *,
+            route_customer:route_customers (
+              *,
+              route:routes (*)
+            )
           )
         `)
         .order('visit_date', { ascending: false });
@@ -151,6 +202,46 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
       setFilteredVisits(data || []);
     } catch (err) {
       console.error('Error fetching visits:', err);
+      throw err;
+    }
+  }
+  
+  async function fetchCustomers() {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      setCustomers(data || []);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
+      throw err;
+    }
+  }
+  
+  async function fetchAgents() {
+    try {
+      let query = supabase
+        .from('profiles')
+        .select('*');
+      
+      // Filter agents based on module type
+      if (moduleType === 'presales') {
+        query = query.eq('role', 'presales');
+      } else if (moduleType === 'sales') {
+        query = query.eq('role', 'sales');
+      } else if (moduleType === 'delivery') {
+        query = query.eq('role', 'delivery');
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      setAgents(data || []);
+    } catch (err) {
+      console.error('Error fetching agents:', err);
       throw err;
     }
   }
@@ -210,7 +301,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
   };
 
   const handleDeleteRoute = async (route: Route) => {
-    if (!confirm('Are you sure you want to delete this route?')) return;
+    if (!confirm('Are you sure you want to delete this route? This will also delete all associated customers and visits.')) return;
 
     try {
       const { error } = await supabase
@@ -227,7 +318,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
   };
 
   // Visit CRUD operations
-  const handleAddVisit = () => {
+  const handleAddVisit = (routeId?: string, customerId?: string) => {
     setSelectedVisit(undefined);
     setIsVisitModalOpen(true);
   };
@@ -270,6 +361,15 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
       console.error('Error:', err);
       alert('Failed to delete visit');
     }
+  };
+  
+  // Helper functions
+  const getRouteCustomers = (routeId: string) => {
+    return routeCustomers.filter(rc => rc.route_id === routeId);
+  };
+  
+  const getRouteAgents = (routeId: string) => {
+    return routeAgents.filter(ra => ra.route_id === routeId);
   };
 
   // Utility functions
@@ -398,6 +498,17 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
             <Calendar className="h-5 w-5" />
             <span>Visits</span>
           </button>
+          <button
+            onClick={() => setActiveTab('schedules')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+              activeTab === 'schedules'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <CalendarDays className="h-5 w-5" />
+            <span>Schedules</span>
+          </button>
         </nav>
       </div>
 
@@ -468,6 +579,12 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                         Type
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Customers
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Agents
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Description
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -481,7 +598,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredRoutes.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                        <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
                           {routeSearchTerm || routeTypeFilter !== 'all' 
                             ? 'No routes found matching your filters.' 
                             : 'No routes found. Click "Add Route" to get started.'
@@ -489,45 +606,70 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                         </td>
                       </tr>
                     ) : (
-                      filteredRoutes.map((route) => (
-                        <tr key={route.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <RouteIcon className="h-5 w-5 text-gray-400 mr-3" />
-                              <div className="text-sm font-medium text-gray-900">{route.name}</div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
-                            {route.type}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
-                            {route.description || '-'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(route.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex items-center space-x-2 justify-end">
-                              <button
-                                type="button"
-                                onClick={() => handleEditRoute(route)}
-                                className="text-indigo-600 hover:text-indigo-900"
-                              >
-                                <Pencil className="h-4 w-4" />
-                                <span className="sr-only">Edit</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteRoute(route)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                <span className="sr-only">Delete</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      filteredRoutes.map((route) => {
+                        const routeCustomersList = getRouteCustomers(route.id);
+                        const routeAgentsList = getRouteAgents(route.id);
+                        
+                        return (
+                          <tr key={route.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <RouteIcon className="h-5 w-5 text-gray-400 mr-3" />
+                                <div className="text-sm font-medium text-gray-900">{route.name}</div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                              {route.type}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <Users className="h-4 w-4 text-gray-400 mr-2" />
+                                <span className="text-sm text-gray-900">{routeCustomersList.length}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <User className="h-4 w-4 text-gray-400 mr-2" />
+                                <span className="text-sm text-gray-900">{routeAgentsList.length}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500">
+                              {route.description || '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(route.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <div className="flex items-center space-x-2 justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddVisit(route.id)}
+                                  className="text-indigo-600 hover:text-indigo-900"
+                                  title="Schedule Visit"
+                                >
+                                  <Calendar className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditRoute(route)}
+                                  className="text-indigo-600 hover:text-indigo-900"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  <span className="sr-only">Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRoute(route)}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Delete</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -580,7 +722,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
               </div>
               <div className="flex items-end">
                 <button
-                  onClick={handleAddVisit}
+                  onClick={() => handleAddVisit()}
                   className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -610,6 +752,9 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                         Created By
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Route
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Media
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -623,7 +768,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredVisits.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
+                        <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
                           {visitSearchTerm || outcomeFilter !== 'all' 
                             ? 'No visits found matching your filters.' 
                             : 'No visits scheduled yet. Click "Schedule Visit" to get started.'
@@ -636,6 +781,7 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                         const outcomeColor = getOutcomeColor(visit.outcome);
                         const photoCount = visit.photos_url?.length || 0;
                         const hasLocation = visit.latitude && visit.longitude;
+                        const routeName = visit.schedule?.route_customer?.route?.name || '-';
                         
                         return (
                           <tr key={visit.id} className="hover:bg-gray-50">
@@ -663,6 +809,9 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {visit.created_by_profile.first_name} {visit.created_by_profile.last_name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {routeName}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex space-x-2">
@@ -720,12 +869,70 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
           </div>
         </div>
       )}
+      
+      {/* Schedules Tab Content */}
+      {activeTab === 'schedules' && (
+        <div className="space-y-6">
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Visit Schedules</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              View and manage recurring visit schedules for your routes and customers.
+            </p>
+            
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Route
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Frequency
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Start Date
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      End Date
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Visits
+                    </th>
+                    <th scope="col" className="relative px-6 py-3">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  <tr>
+                    <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
+                      Visit schedules will be displayed here. Create visits with recurring schedules to see them here.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <RouteModal
         isOpen={isRouteModalOpen}
         onClose={() => setIsRouteModalOpen(false)}
         route={selectedRoute}
+        customers={customers}
+        agents={agents.filter(agent => 
+          (moduleType === 'presales' && agent.role === 'presales') ||
+          (moduleType === 'sales' && agent.role === 'sales') ||
+          (moduleType === 'delivery' && agent.role === 'delivery')
+        )}
+        routeCustomers={routeCustomers}
+        routeAgents={routeAgents}
+        moduleType={moduleType}
         onSuccess={fetchData}
       />
 
@@ -733,6 +940,8 @@ export function RoutePlanningView({ moduleType }: RoutePlanningViewProps) {
         isOpen={isVisitModalOpen}
         onClose={() => setIsVisitModalOpen(false)}
         visit={selectedVisit}
+        routes={routes}
+        routeCustomers={routeCustomers}
         onSuccess={fetchData}
       />
 

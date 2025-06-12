@@ -299,6 +299,7 @@ export interface VisitWithDetails extends Visit {
   created_by_profile: {
     first_name: string;
     last_name: string;
+    role?: string;
   };
   schedule?: VisitSchedule;
 }
@@ -432,6 +433,7 @@ export interface WmsProduct {
   max_stock?: number;
   created_at: string;
   updated_at: string;
+  unit_price?: number;
 }
 
 export interface WmsInventory {
