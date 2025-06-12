@@ -9,7 +9,7 @@ export interface Tenant {
 export interface Profile {
   id: string;
   tenant_id: string;
-  role: 'admin' | 'sales' | 'presales' | 'delivery' | 'warehouse';
+  role: 'admin' | 'sales' | 'presales' | 'delivery' | 'warehouse' | 'superadmin';
   first_name: string;
   last_name: string;
   avatar_url?: string;
@@ -73,6 +73,8 @@ export interface Order {
   total_amount: number;
   status: 'pending' | 'completed' | 'cancelled';
   created_at: string;
+  customer?: Customer;
+  order_items?: OrderItem[];
 }
 
 export interface OrderItem {
@@ -82,6 +84,11 @@ export interface OrderItem {
   quantity: number;
   unit_price: number;
   created_at: string;
+  product?: Product;
+  products?: {
+    name: string;
+    category?: string;
+  };
 }
 
 export interface Invoice {
@@ -296,7 +303,7 @@ export interface VisitWithDetails extends Visit {
   schedule?: VisitSchedule;
 }
 
-// Warehouse/Inventory Module Types
+// Legacy Warehouse/Inventory Module Types
 export interface Location {
   id: string;
   tenant_id: string;
@@ -371,6 +378,186 @@ export interface InventoryMetrics {
   stockByLocation: {
     location_id: string;
     location_name: string;
+    total_items: number;
+    total_value: number;
+  }[];
+  topMovingProducts: {
+    product_id: string;
+    product_name: string;
+    total_movements: number;
+    net_change: number;
+  }[];
+}
+
+// New WMS Module Types
+export interface WmsUser {
+  id: string;
+  email: string;
+  full_name?: string;
+  role: 'admin' | 'manager' | 'picker' | 'receiver';
+  warehouse_id?: string;
+  created_at: string;
+  updated_at: string;
+  warehouse?: WmsWarehouse;
+}
+
+export interface WmsWarehouse {
+  id: string;
+  name: string;
+  address: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WmsLocation {
+  id: string;
+  warehouse_id: string;
+  zone: string;
+  aisle: string;
+  shelf: string;
+  position: string;
+  created_at: string;
+  updated_at: string;
+  warehouse?: WmsWarehouse;
+}
+
+export interface WmsProduct {
+  id: string;
+  sku: string;
+  name: string;
+  description?: string;
+  category?: string;
+  unit: string;
+  min_stock: number;
+  max_stock?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WmsInventory {
+  id: string;
+  product_id: string;
+  location_id: string;
+  quantity: number;
+  lot_number?: string;
+  expiration_date?: string;
+  created_at: string;
+  updated_at: string;
+  product?: WmsProduct;
+  location?: WmsLocation;
+}
+
+export interface WmsReceiving {
+  id: string;
+  reference_number: string;
+  warehouse_id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  received_by?: string;
+  received_at?: string;
+  created_at: string;
+  updated_at: string;
+  warehouse?: WmsWarehouse;
+  received_by_user?: WmsUser;
+  receiving_items?: WmsReceivingItem[];
+}
+
+export interface WmsReceivingItem {
+  id: string;
+  receiving_id: string;
+  product_id: string;
+  expected_quantity: number;
+  received_quantity?: number;
+  lot_number?: string;
+  expiration_date?: string;
+  location_id?: string;
+  created_at: string;
+  updated_at: string;
+  product?: WmsProduct;
+  location?: WmsLocation;
+}
+
+export interface WmsPicking {
+  id: string;
+  reference_number: string;
+  warehouse_id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  picked_by?: string;
+  picked_at?: string;
+  created_at: string;
+  updated_at: string;
+  warehouse?: WmsWarehouse;
+  picked_by_user?: WmsUser;
+  picking_items?: WmsPickingItem[];
+}
+
+export interface WmsPickingItem {
+  id: string;
+  picking_id: string;
+  product_id: string;
+  location_id: string;
+  requested_quantity: number;
+  picked_quantity?: number;
+  lot_number?: string;
+  created_at: string;
+  updated_at: string;
+  product?: WmsProduct;
+  location?: WmsLocation;
+}
+
+export interface WmsTransfer {
+  id: string;
+  reference_number: string;
+  from_location_id: string;
+  to_location_id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  initiated_by: string;
+  completed_by?: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+  from_location?: WmsLocation;
+  to_location?: WmsLocation;
+  initiated_by_user?: WmsUser;
+  completed_by_user?: WmsUser;
+  transfer_items?: WmsTransferItem[];
+}
+
+export interface WmsTransferItem {
+  id: string;
+  transfer_id: string;
+  product_id: string;
+  quantity: number;
+  lot_number?: string;
+  created_at: string;
+  updated_at: string;
+  product?: WmsProduct;
+}
+
+export interface WmsAuditLog {
+  id: string;
+  user_id?: string;
+  action: string;
+  table_name: string;
+  record_id: string;
+  old_values?: Record<string, any>;
+  new_values?: Record<string, any>;
+  created_at: string;
+  user?: WmsUser;
+}
+
+export interface WmsMetrics {
+  totalWarehouses: number;
+  totalProducts: number;
+  totalLocations: number;
+  totalStockValue: number;
+  lowStockItems: number;
+  pendingReceivings: number;
+  pendingPickings: number;
+  pendingTransfers: number;
+  recentAuditLogs: WmsAuditLog[];
+  stockByWarehouse: {
+    warehouse_id: string;
+    warehouse_name: string;
     total_items: number;
     total_value: number;
   }[];
@@ -540,4 +727,23 @@ export interface SupplierOrderItem {
   unit_price: number;
   created_at: string;
   product?: Product;
+}
+
+// Payment Module Types
+export interface Payment {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  amount: number;
+  payment_date: string;
+  payment_method: 'cash' | 'credit_card' | 'bank_transfer' | 'check' | 'other';
+  payment_reference?: string;
+  notes?: string;
+  created_by: string;
+  created_at: string;
+  invoice?: Invoice;
+  created_by_profile?: {
+    first_name: string;
+    last_name: string;
+  };
 }

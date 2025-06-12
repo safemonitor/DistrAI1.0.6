@@ -12,192 +12,321 @@ import {
   Filter,
   Building,
   Boxes,
-  Scan
+  Scan,
+  Warehouse
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { LocationModal } from '../components/LocationModal';
-import { InventoryTransactionModal } from '../components/InventoryTransactionModal';
-import { StockTransferModal } from '../components/StockTransferModal';
-import { BarcodeInventoryTransaction } from '../components/BarcodeInventoryTransaction';
-import { BarcodeStockTransfer } from '../components/BarcodeStockTransfer';
-import { BarcodeInventoryLookup } from '../components/BarcodeInventoryLookup';
-import { InventoryOverview } from '../components/InventoryOverview';
-import { LocationInventoryView } from '../components/LocationInventoryView';
-import { TransactionHistory } from '../components/TransactionHistory';
-import { StockTransferManager } from '../components/StockTransferManager';
+import { WmsWarehouseModal } from '../components/WmsWarehouseModal';
+import { WmsLocationModal } from '../components/WmsLocationModal';
+import { WmsProductModal } from '../components/WmsProductModal';
+import { WmsReceivingModal } from '../components/WmsReceivingModal';
+import { WmsPickingModal } from '../components/WmsPickingModal';
+import { WmsTransferModal } from '../components/WmsTransferModal';
+import { WmsInventoryLookup } from '../components/WmsInventoryLookup';
+import { WmsOverview } from '../components/WmsOverview';
+import { WmsInventoryView } from '../components/WmsInventoryView';
+import { WmsAuditLogView } from '../components/WmsAuditLogView';
+import { WmsTransferManager } from '../components/WmsTransferManager';
 import type { 
-  Location, 
-  InventoryTransaction, 
-  StockTransfer, 
-  LocationInventory,
-  Product,
-  InventoryMetrics 
+  WmsWarehouse,
+  WmsLocation,
+  WmsProduct,
+  WmsInventory,
+  WmsReceiving,
+  WmsPicking,
+  WmsTransfer,
+  WmsAuditLog,
+  WmsMetrics,
+  WmsUser
 } from '../types/database';
 
 export function WarehousePage() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'locations' | 'transactions' | 'transfers' | 'lookup'>('overview');
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
-  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
-  const [locationInventory, setLocationInventory] = useState<LocationInventory[]>([]);
-  const [metrics, setMetrics] = useState<InventoryMetrics>({
-    totalLocations: 0,
+  const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'receiving' | 'picking' | 'transfers' | 'lookup'>('overview');
+  const [warehouses, setWarehouses] = useState<WmsWarehouse[]>([]);
+  const [locations, setLocations] = useState<WmsLocation[]>([]);
+  const [products, setProducts] = useState<WmsProduct[]>([]);
+  const [inventory, setInventory] = useState<WmsInventory[]>([]);
+  const [receivings, setReceivings] = useState<WmsReceiving[]>([]);
+  const [pickings, setPickings] = useState<WmsPicking[]>([]);
+  const [transfers, setTransfers] = useState<WmsTransfer[]>([]);
+  const [auditLogs, setAuditLogs] = useState<WmsAuditLog[]>([]);
+  const [wmsUsers, setWmsUsers] = useState<WmsUser[]>([]);
+  
+  const [metrics, setMetrics] = useState<WmsMetrics>({
+    totalWarehouses: 0,
     totalProducts: 0,
+    totalLocations: 0,
     totalStockValue: 0,
     lowStockItems: 0,
+    pendingReceivings: 0,
+    pendingPickings: 0,
     pendingTransfers: 0,
-    recentTransactions: [],
-    stockByLocation: [],
+    recentAuditLogs: [],
+    stockByWarehouse: [],
     topMovingProducts: []
   });
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Modal states
+  const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
-  const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [isReceivingModalOpen, setIsReceivingModalOpen] = useState(false);
+  const [isPickingModalOpen, setIsPickingModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [isBarcodeTransactionOpen, setIsBarcodeTransactionOpen] = useState(false);
-  const [isBarcodeTransferOpen, setIsBarcodeTransferOpen] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<Location | undefined>();
-  const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | undefined>();
+  
+  // Selected items for editing
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WmsWarehouse | undefined>();
+  const [selectedLocation, setSelectedLocation] = useState<WmsLocation | undefined>();
+  const [selectedProduct, setSelectedProduct] = useState<WmsProduct | undefined>();
+  const [selectedReceiving, setSelectedReceiving] = useState<WmsReceiving | undefined>();
+  const [selectedPicking, setSelectedPicking] = useState<WmsPicking | undefined>();
+  const [selectedTransfer, setSelectedTransfer] = useState<WmsTransfer | undefined>();
 
   useEffect(() => {
-    fetchWarehouseData();
+    fetchWmsData();
   }, []);
 
-  async function fetchWarehouseData() {
+  async function fetchWmsData() {
     try {
       setIsLoading(true);
       
-      // Fetch locations
-      const { data: locationsData, error: locationsError } = await supabase
-        .from('locations')
+      // Fetch warehouses
+      const { data: warehousesData, error: warehousesError } = await supabase
+        .from('wms_warehouses')
         .select('*')
         .order('name');
+
+      if (warehousesError) throw warehousesError;
+
+      // Fetch locations
+      const { data: locationsData, error: locationsError } = await supabase
+        .from('wms_locations')
+        .select(`
+          *,
+          warehouse:wms_warehouses (*)
+        `)
+        .order('warehouse_id, zone, aisle, shelf, position');
 
       if (locationsError) throw locationsError;
 
       // Fetch products
       const { data: productsData, error: productsError } = await supabase
-        .from('products')
+        .from('wms_products')
         .select('*')
         .order('name');
 
       if (productsError) throw productsError;
 
-      // Fetch recent transactions
-      const { data: transactionsData, error: transactionsError } = await supabase
-        .from('inventory_transactions')
+      // Fetch inventory
+      const { data: inventoryData, error: inventoryError } = await supabase
+        .from('wms_inventory')
         .select(`
           *,
-          product:products (*),
-          location:locations (*),
-          performed_by_profile:profiles!performed_by (
-            first_name,
-            last_name
+          product:wms_products (*),
+          location:wms_locations (
+            *,
+            warehouse:wms_warehouses (*)
+          )
+        `);
+
+      if (inventoryError) throw inventoryError;
+
+      // Fetch receivings
+      const { data: receivingsData, error: receivingsError } = await supabase
+        .from('wms_receiving')
+        .select(`
+          *,
+          warehouse:wms_warehouses (*),
+          received_by_user:wms_users (*),
+          receiving_items:wms_receiving_items (
+            *,
+            product:wms_products (*),
+            location:wms_locations (*)
           )
         `)
-        .order('transaction_date', { ascending: false })
-        .limit(50);
+        .order('created_at', { ascending: false });
 
-      if (transactionsError) throw transactionsError;
+      if (receivingsError) throw receivingsError;
 
-      // Fetch stock transfers
-      const { data: transfersData, error: transfersError } = await supabase
-        .from('stock_transfers')
+      // Fetch pickings
+      const { data: pickingsData, error: pickingsError } = await supabase
+        .from('wms_picking')
         .select(`
           *,
-          from_location:locations!from_location_id (*),
-          to_location:locations!to_location_id (*),
-          created_by_profile:profiles!created_by (
-            first_name,
-            last_name
-          ),
-          transfer_items:stock_transfer_items (
+          warehouse:wms_warehouses (*),
+          picked_by_user:wms_users (*),
+          picking_items:wms_picking_items (
             *,
-            product:products (*)
+            product:wms_products (*),
+            location:wms_locations (*)
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (pickingsError) throw pickingsError;
+
+      // Fetch transfers
+      const { data: transfersData, error: transfersError } = await supabase
+        .from('wms_transfers')
+        .select(`
+          *,
+          from_location:wms_locations (
+            *,
+            warehouse:wms_warehouses (*)
+          ),
+          to_location:wms_locations (
+            *,
+            warehouse:wms_warehouses (*)
+          ),
+          initiated_by_user:wms_users (*),
+          completed_by_user:wms_users (*),
+          transfer_items:wms_transfer_items (
+            *,
+            product:wms_products (*)
           )
         `)
         .order('created_at', { ascending: false });
 
       if (transfersError) throw transfersError;
 
-      // Fetch location inventory
-      const { data: inventoryData, error: inventoryError } = await supabase
-        .from('location_inventory')
+      // Fetch audit logs
+      const { data: auditLogsData, error: auditLogsError } = await supabase
+        .from('wms_audit_log')
         .select(`
           *,
-          location:locations (*),
-          product:products (*)
+          user:wms_users (*)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (auditLogsError) throw auditLogsError;
+
+      // Fetch WMS users
+      const { data: usersData, error: usersError } = await supabase
+        .from('wms_users')
+        .select(`
+          *,
+          warehouse:wms_warehouses (*)
         `);
 
-      if (inventoryError) throw inventoryError;
+      if (usersError) throw usersError;
 
+      setWarehouses(warehousesData || []);
       setLocations(locationsData || []);
       setProducts(productsData || []);
-      setTransactions(transactionsData || []);
+      setInventory(inventoryData || []);
+      setReceivings(receivingsData || []);
+      setPickings(pickingsData || []);
       setTransfers(transfersData || []);
-      setLocationInventory(inventoryData || []);
+      setAuditLogs(auditLogsData || []);
+      setWmsUsers(usersData || []);
 
       // Calculate metrics
-      calculateMetrics(locationsData || [], productsData || [], inventoryData || [], transfersData || [], transactionsData || []);
+      calculateMetrics(
+        warehousesData || [], 
+        locationsData || [], 
+        productsData || [], 
+        inventoryData || [], 
+        receivingsData || [], 
+        pickingsData || [], 
+        transfersData || [], 
+        auditLogsData || []
+      );
 
     } catch (err) {
-      console.error('Error fetching warehouse data:', err);
-      setError('Failed to load warehouse data');
+      console.error('Error fetching WMS data:', err);
+      setError('Failed to load warehouse management data');
     } finally {
       setIsLoading(false);
     }
   }
 
   function calculateMetrics(
-    locations: Location[], 
-    products: Product[], 
-    inventory: LocationInventory[], 
-    transfers: StockTransfer[],
-    transactions: InventoryTransaction[]
+    warehouses: WmsWarehouse[], 
+    locations: WmsLocation[], 
+    products: WmsProduct[], 
+    inventory: WmsInventory[],
+    receivings: WmsReceiving[],
+    pickings: WmsPicking[],
+    transfers: WmsTransfer[],
+    auditLogs: WmsAuditLog[]
   ) {
-    const totalStockValue = inventory.reduce((sum, item) => 
-      sum + (item.quantity * (item.product?.price || 0)), 0
-    );
+    // Calculate total stock value
+    const totalStockValue = inventory.reduce((sum, item) => {
+      const product = products.find(p => p.id === item.product_id);
+      // Use a default price of 0 if product not found or price not available
+      const price = product ? (product.unit_price || 0) : 0;
+      return sum + (item.quantity * price);
+    }, 0);
 
-    const lowStockItems = inventory.filter(item => item.quantity <= 10).length;
+    // Count low stock items
+    const lowStockItems = inventory.reduce((count, item) => {
+      const product = products.find(p => p.id === item.product_id);
+      if (product && item.quantity <= product.min_stock) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+
+    // Count pending operations
+    const pendingReceivings = receivings.filter(r => r.status === 'pending').length;
+    const pendingPickings = pickings.filter(p => p.status === 'pending').length;
     const pendingTransfers = transfers.filter(t => t.status === 'pending').length;
 
-    // Stock by location
-    const stockByLocation = locations.map(location => {
-      const locationItems = inventory.filter(item => item.location_id === location.id);
-      const totalItems = locationItems.reduce((sum, item) => sum + item.quantity, 0);
-      const totalValue = locationItems.reduce((sum, item) => 
-        sum + (item.quantity * (item.product?.price || 0)), 0
+    // Calculate stock by warehouse
+    const stockByWarehouse = warehouses.map(warehouse => {
+      const warehouseLocations = locations.filter(l => l.warehouse_id === warehouse.id);
+      const warehouseLocationIds = warehouseLocations.map(l => l.id);
+      
+      const warehouseInventory = inventory.filter(i => 
+        warehouseLocationIds.includes(i.location_id)
       );
+      
+      const totalItems = warehouseInventory.reduce((sum, item) => sum + item.quantity, 0);
+      const totalValue = warehouseInventory.reduce((sum, item) => {
+        const product = products.find(p => p.id === item.product_id);
+        const price = product ? (product.unit_price || 0) : 0;
+        return sum + (item.quantity * price);
+      }, 0);
 
       return {
-        location_id: location.id,
-        location_name: location.name,
+        warehouse_id: warehouse.id,
+        warehouse_name: warehouse.name,
         total_items: totalItems,
         total_value: totalValue
       };
     });
 
-    // Top moving products (based on recent transactions)
+    // Calculate top moving products based on audit logs
     const productMovements = new Map();
-    transactions.forEach(transaction => {
-      const productId = transaction.product_id;
-      const existing = productMovements.get(productId) || {
-        product_id: productId,
-        product_name: transaction.product?.name || 'Unknown',
-        total_movements: 0,
-        net_change: 0
-      };
-      
-      existing.total_movements += Math.abs(transaction.quantity);
-      existing.net_change += transaction.transaction_type === 'in' || transaction.transaction_type === 'transfer_in' 
-        ? transaction.quantity 
-        : -transaction.quantity;
-      
-      productMovements.set(productId, existing);
+    
+    auditLogs.forEach(log => {
+      if (log.table_name === 'wms_inventory' && log.new_values && log.old_values) {
+        const productId = log.new_values.product_id || log.old_values.product_id;
+        if (!productId) return;
+        
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        
+        const oldQuantity = log.old_values.quantity || 0;
+        const newQuantity = log.new_values.quantity || 0;
+        const quantityChange = newQuantity - oldQuantity;
+        
+        const existing = productMovements.get(productId) || {
+          product_id: productId,
+          product_name: product.name,
+          total_movements: 0,
+          net_change: 0
+        };
+        
+        existing.total_movements += Math.abs(quantityChange);
+        existing.net_change += quantityChange;
+        
+        productMovements.set(productId, existing);
+      }
     });
 
     const topMovingProducts = Array.from(productMovements.values())
@@ -205,33 +334,68 @@ export function WarehousePage() {
       .slice(0, 10);
 
     setMetrics({
-      totalLocations: locations.length,
+      totalWarehouses: warehouses.length,
       totalProducts: products.length,
+      totalLocations: locations.length,
       totalStockValue,
       lowStockItems,
+      pendingReceivings,
+      pendingPickings,
       pendingTransfers,
-      recentTransactions: transactions.slice(0, 10),
-      stockByLocation,
+      recentAuditLogs: auditLogs.slice(0, 10),
+      stockByWarehouse,
       topMovingProducts
     });
   }
+
+  const handleAddWarehouse = () => {
+    setSelectedWarehouse(undefined);
+    setIsWarehouseModalOpen(true);
+  };
+
+  const handleEditWarehouse = (warehouse: WmsWarehouse) => {
+    setSelectedWarehouse(warehouse);
+    setIsWarehouseModalOpen(true);
+  };
 
   const handleAddLocation = () => {
     setSelectedLocation(undefined);
     setIsLocationModalOpen(true);
   };
 
-  const handleEditLocation = (location: Location) => {
+  const handleEditLocation = (location: WmsLocation) => {
     setSelectedLocation(location);
     setIsLocationModalOpen(true);
   };
 
-  const handleAddTransaction = () => {
-    setIsTransactionModalOpen(true);
+  const handleAddProduct = () => {
+    setSelectedProduct(undefined);
+    setIsProductModalOpen(true);
   };
 
-  const handleAddBarcodeTransaction = () => {
-    setIsBarcodeTransactionOpen(true);
+  const handleEditProduct = (product: WmsProduct) => {
+    setSelectedProduct(product);
+    setIsProductModalOpen(true);
+  };
+
+  const handleAddReceiving = () => {
+    setSelectedReceiving(undefined);
+    setIsReceivingModalOpen(true);
+  };
+
+  const handleProcessReceiving = (receiving: WmsReceiving) => {
+    setSelectedReceiving(receiving);
+    setIsReceivingModalOpen(true);
+  };
+
+  const handleAddPicking = () => {
+    setSelectedPicking(undefined);
+    setIsPickingModalOpen(true);
+  };
+
+  const handleProcessPicking = (picking: WmsPicking) => {
+    setSelectedPicking(picking);
+    setIsPickingModalOpen(true);
   };
 
   const handleAddTransfer = () => {
@@ -239,12 +403,7 @@ export function WarehousePage() {
     setIsTransferModalOpen(true);
   };
 
-  const handleAddBarcodeTransfer = () => {
-    setSelectedTransfer(undefined);
-    setIsBarcodeTransferOpen(true);
-  };
-
-  const handleEditTransfer = (transfer: StockTransfer) => {
+  const handleProcessTransfer = (transfer: WmsTransfer) => {
     setSelectedTransfer(transfer);
     setIsTransferModalOpen(true);
   };
@@ -270,46 +429,53 @@ export function WarehousePage() {
       {/* Header */}
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Warehouse Management</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Warehouse Management System</h1>
           <p className="mt-2 text-sm text-gray-700">
-            Manage inventory, locations, stock movements, and transfers with barcode scanning
+            Manage warehouses, inventory, receiving, picking, and transfers with barcode scanning
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
           <button
+            onClick={handleAddWarehouse}
+            className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Warehouse className="h-4 w-4 mr-2" />
+            Add Warehouse
+          </button>
+          <button
             onClick={handleAddLocation}
             className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
           >
-            <Building className="h-4 w-4 mr-2" />
+            <MapPin className="h-4 w-4 mr-2" />
             Add Location
           </button>
           <button
-            onClick={handleAddBarcodeTransaction}
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
-          >
-            <Scan className="h-4 w-4 mr-2" />
-            Barcode Transaction
-          </button>
-          <button
-            onClick={handleAddTransaction}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+            onClick={handleAddProduct}
+            className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
           >
             <Package className="h-4 w-4 mr-2" />
-            Manual Transaction
+            Add Product
           </button>
           <button
-            onClick={handleAddBarcodeTransfer}
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+            onClick={handleAddReceiving}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
           >
-            <Scan className="h-4 w-4 mr-2" />
-            Barcode Transfer
+            <TrendingUp className="h-4 w-4 mr-2" />
+            New Receiving
+          </button>
+          <button
+            onClick={handleAddPicking}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
+          >
+            <TrendingDown className="h-4 w-4 mr-2" />
+            New Picking
           </button>
           <button
             onClick={handleAddTransfer}
             className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
           >
             <ArrowRightLeft className="h-4 w-4 mr-2" />
-            Manual Transfer
+            New Transfer
           </button>
         </div>
       </div>
@@ -319,10 +485,11 @@ export function WarehousePage() {
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', name: 'Overview', icon: BarChart3 },
-            { id: 'lookup', name: 'Barcode Lookup', icon: Search },
-            { id: 'locations', name: 'Locations', icon: MapPin },
-            { id: 'transactions', name: 'Transactions', icon: Package },
+            { id: 'inventory', name: 'Inventory', icon: Package },
+            { id: 'receiving', name: 'Receiving', icon: TrendingUp },
+            { id: 'picking', name: 'Picking', icon: TrendingDown },
             { id: 'transfers', name: 'Transfers', icon: ArrowRightLeft },
+            { id: 'lookup', name: 'Inventory Lookup', icon: Search },
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -345,92 +512,250 @@ export function WarehousePage() {
 
       {/* Tab Content */}
       {activeTab === 'overview' && (
-        <InventoryOverview 
+        <WmsOverview 
           metrics={metrics}
-          locations={locations}
-          onLocationSelect={(location) => {
-            setActiveTab('locations');
-            setSelectedLocation(location);
+          warehouses={warehouses}
+          onWarehouseSelect={(warehouse) => {
+            setActiveTab('inventory');
+            setSelectedWarehouse(warehouse);
           }}
         />
       )}
 
-      {activeTab === 'lookup' && (
-        <BarcodeInventoryLookup 
-          products={products}
-          locationInventory={locationInventory}
-          onRefresh={fetchWarehouseData}
-        />
-      )}
-
-      {activeTab === 'locations' && (
-        <LocationInventoryView 
+      {activeTab === 'inventory' && (
+        <WmsInventoryView 
+          warehouses={warehouses}
           locations={locations}
-          locationInventory={locationInventory}
+          products={products}
+          inventory={inventory}
           onEditLocation={handleEditLocation}
-          onAddTransaction={handleAddBarcodeTransaction}
-          onRefresh={fetchWarehouseData}
+          onEditProduct={handleEditProduct}
+          onRefresh={fetchWmsData}
         />
       )}
 
-      {activeTab === 'transactions' && (
-        <TransactionHistory 
-          transactions={transactions}
-          onAddTransaction={handleAddBarcodeTransaction}
-          onRefresh={fetchWarehouseData}
-        />
+      {activeTab === 'receiving' && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Receiving Management</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Reference #
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Warehouse
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Items
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Created
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {receivings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                      No receiving records found. Create a new receiving to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  receivings.map((receiving) => (
+                    <tr key={receiving.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {receiving.reference_number}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {receiving.warehouse?.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          receiving.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          receiving.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                          receiving.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {receiving.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {receiving.receiving_items?.length || 0} items
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(receiving.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => handleProcessReceiving(receiving)}
+                          className="text-indigo-600 hover:text-indigo-900"
+                        >
+                          {receiving.status === 'pending' ? 'Process' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'picking' && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Picking Management</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Reference #
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Warehouse
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Items
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Created
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {pickings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                      No picking records found. Create a new picking to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  pickings.map((picking) => (
+                    <tr key={picking.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {picking.reference_number}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {picking.warehouse?.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          picking.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          picking.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                          picking.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {picking.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {picking.picking_items?.length || 0} items
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(picking.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => handleProcessPicking(picking)}
+                          className="text-indigo-600 hover:text-indigo-900"
+                        >
+                          {picking.status === 'pending' ? 'Process' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {activeTab === 'transfers' && (
-        <StockTransferManager 
+        <WmsTransferManager 
           transfers={transfers}
           locations={locations}
-          onEditTransfer={handleEditTransfer}
-          onAddTransfer={handleAddBarcodeTransfer}
-          onRefresh={fetchWarehouseData}
+          onProcessTransfer={handleProcessTransfer}
+          onAddTransfer={handleAddTransfer}
+          onRefresh={fetchWmsData}
+        />
+      )}
+
+      {activeTab === 'lookup' && (
+        <WmsInventoryLookup 
+          products={products}
+          inventory={inventory}
+          auditLogs={auditLogs}
+          onRefresh={fetchWmsData}
         />
       )}
 
       {/* Modals */}
-      <LocationModal
+      <WmsWarehouseModal
+        isOpen={isWarehouseModalOpen}
+        onClose={() => setIsWarehouseModalOpen(false)}
+        warehouse={selectedWarehouse}
+        onSuccess={fetchWmsData}
+      />
+
+      <WmsLocationModal
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
         location={selectedLocation}
-        onSuccess={fetchWarehouseData}
+        warehouses={warehouses}
+        onSuccess={fetchWmsData}
       />
 
-      <InventoryTransactionModal
-        isOpen={isTransactionModalOpen}
-        onClose={() => setIsTransactionModalOpen(false)}
+      <WmsProductModal
+        isOpen={isProductModalOpen}
+        onClose={() => setIsProductModalOpen(false)}
+        product={selectedProduct}
+        onSuccess={fetchWmsData}
+      />
+
+      <WmsReceivingModal
+        isOpen={isReceivingModalOpen}
+        onClose={() => setIsReceivingModalOpen(false)}
+        receiving={selectedReceiving}
+        warehouses={warehouses}
         locations={locations}
         products={products}
-        onSuccess={fetchWarehouseData}
+        onSuccess={fetchWmsData}
       />
 
-      <StockTransferModal
+      <WmsPickingModal
+        isOpen={isPickingModalOpen}
+        onClose={() => setIsPickingModalOpen(false)}
+        picking={selectedPicking}
+        warehouses={warehouses}
+        locations={locations}
+        products={products}
+        inventory={inventory}
+        onSuccess={fetchWmsData}
+      />
+
+      <WmsTransferModal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
         transfer={selectedTransfer}
         locations={locations}
         products={products}
-        onSuccess={fetchWarehouseData}
-      />
-
-      <BarcodeInventoryTransaction
-        isOpen={isBarcodeTransactionOpen}
-        onClose={() => setIsBarcodeTransactionOpen(false)}
-        locations={locations}
-        products={products}
-        onSuccess={fetchWarehouseData}
-      />
-
-      <BarcodeStockTransfer
-        isOpen={isBarcodeTransferOpen}
-        onClose={() => setIsBarcodeTransferOpen(false)}
-        transfer={selectedTransfer}
-        locations={locations}
-        products={products}
-        onSuccess={fetchWarehouseData}
+        onSuccess={fetchWmsData}
       />
     </div>
   );
